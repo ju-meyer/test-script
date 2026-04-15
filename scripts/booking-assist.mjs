@@ -1,8 +1,6 @@
 import 'dotenv/config';
 import { chromium } from 'playwright';
 
-const argv = new Set(process.argv.slice(2));
-
 const cfg = {
   url:
     process.env.BOOKING_URL ||
@@ -17,9 +15,7 @@ const cfg = {
   maxAttempts: Number(process.env.MAX_ATTEMPTS || 300),
   headless: String(process.env.HEADLESS || 'false').toLowerCase() === 'true',
   slowMoMs: Number(process.env.SLOW_MO_MS || 0),
-  runNow:
-    argv.has('--run-now') ||
-    String(process.env.RUN_NOW || 'false').toLowerCase() === 'true',
+  runNow: String(process.env.RUN_NOW || 'false').toLowerCase() === 'true',
   profile: {
     firstName: process.env.FIRST_NAME || '',
     lastName: process.env.LAST_NAME || '',
@@ -79,9 +75,9 @@ async function waitUntilWindow() {
 async function safeClick(locator) {
   try {
     await locator.first().click({ timeout: 1200 });
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: error?.message || String(error) };
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -109,28 +105,17 @@ async function fillProfile(page) {
 
 async function tryReserveSite(page, siteCode) {
   const code = siteCode.toUpperCase();
-  let matchedContainers = 0;
-  let foundReserveControl = false;
-  let lastClickError = '';
 
   // Strategy 1: find a row/card that includes the site code and click a reserve/book button inside it.
   const containers = page.locator(`:is(tr, li, article, div):has-text("${code}")`);
   const count = await containers.count();
-  matchedContainers = count;
 
   for (let i = 0; i < Math.min(count, 15); i += 1) {
     const c = containers.nth(i);
     const reserveButton = c.locator('button:has-text("Reserve"), button:has-text("Book"), a:has-text("Reserve"), a:has-text("Book")');
-    if ((await reserveButton.count()) > 0) {
-      foundReserveControl = true;
-    }
-    const click = await safeClick(reserveButton);
-    if (click.ok) {
+    if (await safeClick(reserveButton)) {
       log(`Clicked reserve/book inside container for ${code}`);
-      return { ok: true, reason: 'clicked_reserve_control' };
-    }
-    if (click.error) {
-      lastClickError = click.error;
+      return true;
     }
   }
 
@@ -138,80 +123,23 @@ async function tryReserveSite(page, siteCode) {
   const direct = page.locator(`text=/${code}/i`);
   if ((await direct.count()) > 0) {
     const nearAction = direct.first().locator('xpath=ancestor-or-self::*[self::tr or self::li or self::div][1]').locator('button, a');
-    const nearReserve = nearAction.filter({ hasText: /reserve|book/i });
-    if ((await nearReserve.count()) > 0) {
-      foundReserveControl = true;
-    }
-    const click = await safeClick(nearReserve);
-    if (click.ok) {
+    if (await safeClick(nearAction.filter({ hasText: /reserve|book/i }))) {
       log(`Clicked nearby reserve/book for ${code}`);
-      return { ok: true, reason: 'clicked_nearby_reserve_control' };
-    }
-    if (click.error) {
-      lastClickError = click.error;
+      return true;
     }
   }
 
-  if (matchedContainers === 0) {
-    return { ok: false, reason: 'site_code_not_visible' };
-  }
-  if (!foundReserveControl) {
-    return { ok: false, reason: 'site_visible_but_no_reserve_control' };
-  }
-  return {
-    ok: false,
-    reason: 'reserve_control_click_failed',
-    details: lastClickError || 'unknown click failure'
-  };
-}
-
-async function detectGlobalStatus(page) {
-  const bodyText = (await page.locator('body').innerText()).toLowerCase();
-  const signals = [];
-
-  if (
-    bodyText.includes('booking opens') ||
-    bodyText.includes('not yet available') ||
-    bodyText.includes('available from')
-  ) {
-    signals.push('booking_not_open_yet_signal');
-  }
-
-  if (
-    bodyText.includes('no availability') ||
-    bodyText.includes('fully booked') ||
-    bodyText.includes('sold out')
-  ) {
-    signals.push('no_availability_signal');
-  }
-
-  if (bodyText.includes('captcha')) {
-    signals.push('captcha_present_signal');
-  }
-
-  return signals;
+  return false;
 }
 
 async function attemptBooking(page) {
   // Reload each attempt after booking-open to catch inventory changes.
-  try {
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 });
-  } catch (error) {
-    return {
-      success: false,
-      reason: 'reload_failed',
-      details: error?.message || String(error)
-    };
-  }
-
-  const globalSignals = await detectGlobalStatus(page);
-  const siteResults = [];
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 });
 
   // Try both targets in priority order.
   for (const site of cfg.targetSites) {
-    const result = await tryReserveSite(page, site);
-    siteResults.push({ site, ...result });
-    if (!result.ok) continue;
+    const ok = await tryReserveSite(page, site);
+    if (!ok) continue;
 
     await page.waitForTimeout(600);
     await fillProfile(page);
@@ -220,12 +148,7 @@ async function attemptBooking(page) {
     return { success: true, site };
   }
 
-  return {
-    success: false,
-    reason: 'no_target_site_click_succeeded',
-    globalSignals,
-    siteResults
-  };
+  return { success: false };
 }
 
 async function main() {
@@ -265,14 +188,6 @@ async function main() {
           await sleep(60_000);
         }
       }
-      log(
-        `Attempt ${attempt} result: ${JSON.stringify({
-          reason: result.reason,
-          globalSignals: result.globalSignals || [],
-          siteResults: result.siteResults || [],
-          details: result.details || ''
-        })}`
-      );
       await sleep(cfg.pollIntervalMs);
     }
 
