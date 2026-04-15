@@ -45,8 +45,6 @@ cp .env.example .env
 npm run start:now
 ```
 
-This works in PowerShell/CMD too because the script uses `cross-env` for shell compatibility.
-
 5. Run for launch time:
 
 ```bash
