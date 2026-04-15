@@ -1,0 +1,15 @@
+{
+  "name": "saskparks-booking-assist",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/booking-assist.mjs",
+    "start:now": "node scripts/booking-assist.mjs --run-now",
+    "check": "node --check scripts/booking-assist.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "playwright": "^1.54.2"
+  }
+}
