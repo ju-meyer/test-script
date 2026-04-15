@@ -45,8 +45,6 @@ cp .env.example .env
 npm run start:now
 ```
 
-This works in PowerShell/CMD too because `npm run start:now` calls a Node launcher script (`scripts/start-now.mjs`) instead of relying on shell-specific env syntax.
-
 5. Run for launch time:
 
 ```bash
