@@ -56,6 +56,10 @@ function log(msg) {
   console.log(`[${utcNowIso()}] ${msg}`);
 }
 
+function getRoots(page) {
+  return [page, ...page.frames().filter((f) => f !== page.mainFrame())];
+}
+
 function toIsoDate(d) {
   return d.toISOString().slice(0, 10);
 }
@@ -103,15 +107,17 @@ async function safeClick(locator) {
 
 async function fillIfEmpty(page, selectors, value) {
   if (!value) return;
-  for (const sel of selectors) {
-    const loc = page.locator(sel).first();
-    if ((await loc.count()) === 0) continue;
-    try {
-      const current = await loc.inputValue();
-      if (!current) await loc.fill(value);
-      return;
-    } catch {
-      // continue trying other selectors
+  for (const root of getRoots(page)) {
+    for (const sel of selectors) {
+      const loc = root.locator(sel).first();
+      if ((await loc.count()) === 0) continue;
+      try {
+        const current = await loc.inputValue();
+        if (!current) await loc.fill(value);
+        return;
+      } catch {
+        // continue trying other selectors
+      }
     }
   }
 }
@@ -124,16 +130,18 @@ async function fillProfile(page) {
 }
 
 async function setDateIfPresent(page, selectors, value) {
-  for (const sel of selectors) {
-    const input = page.locator(sel).first();
-    if ((await input.count()) === 0) continue;
-    try {
-      await input.click({ timeout: 800 });
-      await input.fill(value, { timeout: 1200 });
-      await input.press('Enter').catch(() => {});
-      return true;
-    } catch {
-      // try next selector
+  for (const root of getRoots(page)) {
+    for (const sel of selectors) {
+      const input = root.locator(sel).first();
+      if ((await input.count()) === 0) continue;
+      try {
+        await input.click({ timeout: 800 });
+        await input.fill(value, { timeout: 1200 });
+        await input.press('Enter').catch(() => {});
+        return true;
+      } catch {
+        // try next selector
+      }
     }
   }
   return false;
@@ -188,33 +196,39 @@ async function configureTripDates(page) {
 
 async function applySiteTypeFilter(page) {
   if (!cfg.siteTypeLabel) return false;
-  const filter = page
-    .locator('a, button, label, span')
-    .filter({ hasText: new RegExp(cfg.siteTypeLabel, 'i') })
-    .first();
-  try {
-    if ((await filter.count()) === 0) return false;
-    await filter.click({ timeout: 1200 });
-    log(`Applied site type filter: ${cfg.siteTypeLabel}`);
-    return true;
-  } catch {
-    return false;
+  for (const root of getRoots(page)) {
+    const filter = root
+      .locator('a, button, label, span')
+      .filter({ hasText: new RegExp(cfg.siteTypeLabel, 'i') })
+      .first();
+    try {
+      if ((await filter.count()) === 0) continue;
+      await filter.click({ timeout: 1200 });
+      log(`Applied site type filter: ${cfg.siteTypeLabel}`);
+      return true;
+    } catch {
+      // continue searching other frames/roots
+    }
   }
+  return false;
 }
 
 async function goToNextResultsPage(page) {
-  const next = page
-    .locator('a, button')
-    .filter({ hasText: /next/i })
-    .first();
-  if ((await next.count()) === 0) return false;
-  try {
-    await next.click({ timeout: 1200 });
-    await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
-    return true;
-  } catch {
-    return false;
+  for (const root of getRoots(page)) {
+    const next = root
+      .locator('a, button')
+      .filter({ hasText: /next/i })
+      .first();
+    if ((await next.count()) === 0) continue;
+    try {
+      await next.click({ timeout: 1200 });
+      await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+      return true;
+    } catch {
+      // continue scanning roots
+    }
   }
+  return false;
 }
 
 async function tryReserveSite(page, siteCode) {
@@ -235,51 +249,62 @@ async function tryReserveSite(page, siteCode) {
   let lastClickError = '';
 
   // Strategy 1: find a row/card that includes the site code and click a reserve/book button inside it.
-  for (const variant of variants) {
-    const containers = page.locator(`:is(tr, li, article, div):has-text("${variant}")`);
-    const count = await containers.count();
-    matchedContainers += count;
+  for (const root of getRoots(page)) {
+    for (const variant of variants) {
+      const containers = root.locator(`:is(tr, li, article, div):has-text("${variant}")`);
+      const count = await containers.count();
+      matchedContainers += count;
 
-    for (let i = 0; i < Math.min(count, 15); i += 1) {
-      const c = containers.nth(i);
-      const reserveButton = c.locator(
-        'button:has-text("Reserve"), button:has-text("Book"), button:has-text("Enter Date"), a:has-text("Reserve"), a:has-text("Book"), a:has-text("Enter Date")'
-      );
-      if ((await reserveButton.count()) > 0) {
-        foundReserveControl = true;
-      }
-      const click = await safeClick(reserveButton);
-      if (click.ok) {
-        log(`Clicked reserve/book inside container for ${code} (matched as "${variant}")`);
-        return { ok: true, reason: 'clicked_reserve_control' };
-      }
-      if (click.error) {
-        lastClickError = click.error;
+      for (let i = 0; i < Math.min(count, 15); i += 1) {
+        const c = containers.nth(i);
+        const reserveButton = c.locator(
+          'button:has-text("Reserve"), button:has-text("Book"), button:has-text("Enter Date"), a:has-text("Reserve"), a:has-text("Book"), a:has-text("Enter Date")'
+        );
+        if ((await reserveButton.count()) > 0) {
+          foundReserveControl = true;
+        }
+        const click = await safeClick(reserveButton);
+        if (click.ok) {
+          log(`Clicked reserve/book inside container for ${code} (matched as "${variant}")`);
+          return { ok: true, reason: 'clicked_reserve_control' };
+        }
+        if (click.error) {
+          lastClickError = click.error;
+        }
       }
     }
   }
 
   // Strategy 2: direct text match near actionable controls.
-  for (const variant of variants) {
-    const direct = page.locator(`text=/${variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/i`);
-    if ((await direct.count()) > 0) {
-      const nearAction = direct.first().locator('xpath=ancestor-or-self::*[self::tr or self::li or self::div][1]').locator('button, a');
-      const nearReserve = nearAction.filter({ hasText: /reserve|book|enter date/i });
-      if ((await nearReserve.count()) > 0) {
-        foundReserveControl = true;
-      }
-      const click = await safeClick(nearReserve);
-      if (click.ok) {
-        log(`Clicked nearby reserve/book for ${code} (matched as "${variant}")`);
-        return { ok: true, reason: 'clicked_nearby_reserve_control' };
-      }
-      if (click.error) {
-        lastClickError = click.error;
+  for (const root of getRoots(page)) {
+    for (const variant of variants) {
+      const direct = root.locator(`text=/${variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/i`);
+      if ((await direct.count()) > 0) {
+        const nearAction = direct.first().locator('xpath=ancestor-or-self::*[self::tr or self::li or self::div][1]').locator('button, a');
+        const nearReserve = nearAction.filter({ hasText: /reserve|book|enter date/i });
+        if ((await nearReserve.count()) > 0) {
+          foundReserveControl = true;
+        }
+        const click = await safeClick(nearReserve);
+        if (click.ok) {
+          log(`Clicked nearby reserve/book for ${code} (matched as "${variant}")`);
+          return { ok: true, reason: 'clicked_nearby_reserve_control' };
+        }
+        if (click.error) {
+          lastClickError = click.error;
+        }
       }
     }
   }
 
-  const bodyText = (await page.locator('body').innerText()).toUpperCase();
+  let bodyText = '';
+  for (const root of getRoots(page)) {
+    try {
+      bodyText += `\n${(await root.locator('body').innerText()).toUpperCase()}`;
+    } catch {
+      // ignore frame text failures
+    }
+  }
   const textMatched = variants.some((v) => bodyText.includes(v.toUpperCase()));
 
   if (matchedContainers === 0 && !textMatched) {
@@ -299,7 +324,14 @@ async function tryReserveSite(page, siteCode) {
 }
 
 async function detectGlobalStatus(page) {
-  const bodyText = (await page.locator('body').innerText()).toLowerCase();
+  let bodyText = '';
+  for (const root of getRoots(page)) {
+    try {
+      bodyText += `\n${(await root.locator('body').innerText()).toLowerCase()}`;
+    } catch {
+      // ignore frame text failures
+    }
+  }
   const signals = [];
 
   if (

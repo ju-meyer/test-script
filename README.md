@@ -15,6 +15,7 @@ This repository contains a **speed-assist automation script** to help you move q
 - Matches site codes using common variants (e.g., `L2`, `L 2`, `L-2`, `Loop L Site 2`).
 - Attempts to set arrival/departure dates from `START_DATE` + (`END_DATE` or `NIGHTS`) each attempt.
 - Can click a target site-type filter label (default `Nightly Electric`) and scan multiple result pages via `Next`.
+- Searches main page and embedded frames for filters, site rows, and actions.
 - Optionally auto-fills obvious form fields from environment variables.
 - Leaves final confirmation/payment to you.
 - Logs structured attempt diagnostics (e.g., site code not visible, reserve button missing, click failed, potential not-open/no-availability signals).
