@@ -11,7 +11,10 @@ This repository contains a **speed-assist automation script** to help you move q
 - Tries target sites in priority order (example: `L2`, then `L3`).
 - Keeps retrying until all target sites are added (for example both `L2` and `L3`).
 - Attempts to click reserve/book actions for matching site rows/cards.
+- Supports site actions labeled `Enter Date` (not just `Reserve`/`Book`) for parks using that flow.
+- Matches site codes using common variants (e.g., `L2`, `L 2`, `L-2`, `Loop L Site 2`).
 - Attempts to set arrival/departure dates from `START_DATE` + (`END_DATE` or `NIGHTS`) each attempt.
+- Can click a target site-type filter label (default `Nightly Electric`) and scan multiple result pages via `Next`.
 - Optionally auto-fills obvious form fields from environment variables.
 - Leaves final confirmation/payment to you.
 - Logs structured attempt diagnostics (e.g., site code not visible, reserve button missing, click failed, potential not-open/no-availability signals).
@@ -84,3 +87,5 @@ For your specific use case, set:
 - `START_DATE="2026-06-26"`
 - `END_DATE="2026-07-01"` (or omit this and use `NIGHTS="5"`)
 - `NIGHTS="5"`
+- `SITE_TYPE_LABEL="Nightly Electric"`
+- `MAX_RESULT_PAGES="8"`

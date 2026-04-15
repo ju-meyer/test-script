@@ -15,6 +15,8 @@ const cfg = {
   startDate: process.env.START_DATE || '',
   endDate: process.env.END_DATE || '',
   nights: Number(process.env.NIGHTS || 5),
+  siteTypeLabel: process.env.SITE_TYPE_LABEL || 'Nightly Electric',
+  maxResultPages: Number(process.env.MAX_RESULT_PAGES || 8),
   pollIntervalMs: Number(process.env.POLL_INTERVAL_MS || 500),
   openEarlyMs: Number(process.env.OPEN_EARLY_MS || 120_000),
   maxAttempts: Number(process.env.MAX_ATTEMPTS || 300),
@@ -184,53 +186,107 @@ async function configureTripDates(page) {
   }
 }
 
+async function applySiteTypeFilter(page) {
+  if (!cfg.siteTypeLabel) return false;
+  const filter = page
+    .locator('a, button, label, span')
+    .filter({ hasText: new RegExp(cfg.siteTypeLabel, 'i') })
+    .first();
+  try {
+    if ((await filter.count()) === 0) return false;
+    await filter.click({ timeout: 1200 });
+    log(`Applied site type filter: ${cfg.siteTypeLabel}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function goToNextResultsPage(page) {
+  const next = page
+    .locator('a, button')
+    .filter({ hasText: /next/i })
+    .first();
+  if ((await next.count()) === 0) return false;
+  try {
+    await next.click({ timeout: 1200 });
+    await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function tryReserveSite(page, siteCode) {
   const code = siteCode.toUpperCase();
+  const normalizedNum = code.replace(/[^0-9]/g, '');
+  const variants = Array.from(
+    new Set([
+      code,
+      code.replace(/([A-Z])([0-9]+)/, '$1 $2'),
+      code.replace(/([A-Z])([0-9]+)/, '$1-$2'),
+      normalizedNum ? `SITE ${code}` : '',
+      normalizedNum ? `SITE ${normalizedNum}` : '',
+      normalizedNum ? `LOOP ${code[0]} SITE ${normalizedNum}` : ''
+    ].filter(Boolean))
+  );
   let matchedContainers = 0;
   let foundReserveControl = false;
   let lastClickError = '';
 
   // Strategy 1: find a row/card that includes the site code and click a reserve/book button inside it.
-  const containers = page.locator(`:is(tr, li, article, div):has-text("${code}")`);
-  const count = await containers.count();
-  matchedContainers = count;
+  for (const variant of variants) {
+    const containers = page.locator(`:is(tr, li, article, div):has-text("${variant}")`);
+    const count = await containers.count();
+    matchedContainers += count;
 
-  for (let i = 0; i < Math.min(count, 15); i += 1) {
-    const c = containers.nth(i);
-    const reserveButton = c.locator('button:has-text("Reserve"), button:has-text("Book"), a:has-text("Reserve"), a:has-text("Book")');
-    if ((await reserveButton.count()) > 0) {
-      foundReserveControl = true;
-    }
-    const click = await safeClick(reserveButton);
-    if (click.ok) {
-      log(`Clicked reserve/book inside container for ${code}`);
-      return { ok: true, reason: 'clicked_reserve_control' };
-    }
-    if (click.error) {
-      lastClickError = click.error;
+    for (let i = 0; i < Math.min(count, 15); i += 1) {
+      const c = containers.nth(i);
+      const reserveButton = c.locator(
+        'button:has-text("Reserve"), button:has-text("Book"), button:has-text("Enter Date"), a:has-text("Reserve"), a:has-text("Book"), a:has-text("Enter Date")'
+      );
+      if ((await reserveButton.count()) > 0) {
+        foundReserveControl = true;
+      }
+      const click = await safeClick(reserveButton);
+      if (click.ok) {
+        log(`Clicked reserve/book inside container for ${code} (matched as "${variant}")`);
+        return { ok: true, reason: 'clicked_reserve_control' };
+      }
+      if (click.error) {
+        lastClickError = click.error;
+      }
     }
   }
 
   // Strategy 2: direct text match near actionable controls.
-  const direct = page.locator(`text=/${code}/i`);
-  if ((await direct.count()) > 0) {
-    const nearAction = direct.first().locator('xpath=ancestor-or-self::*[self::tr or self::li or self::div][1]').locator('button, a');
-    const nearReserve = nearAction.filter({ hasText: /reserve|book/i });
-    if ((await nearReserve.count()) > 0) {
-      foundReserveControl = true;
-    }
-    const click = await safeClick(nearReserve);
-    if (click.ok) {
-      log(`Clicked nearby reserve/book for ${code}`);
-      return { ok: true, reason: 'clicked_nearby_reserve_control' };
-    }
-    if (click.error) {
-      lastClickError = click.error;
+  for (const variant of variants) {
+    const direct = page.locator(`text=/${variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/i`);
+    if ((await direct.count()) > 0) {
+      const nearAction = direct.first().locator('xpath=ancestor-or-self::*[self::tr or self::li or self::div][1]').locator('button, a');
+      const nearReserve = nearAction.filter({ hasText: /reserve|book|enter date/i });
+      if ((await nearReserve.count()) > 0) {
+        foundReserveControl = true;
+      }
+      const click = await safeClick(nearReserve);
+      if (click.ok) {
+        log(`Clicked nearby reserve/book for ${code} (matched as "${variant}")`);
+        return { ok: true, reason: 'clicked_nearby_reserve_control' };
+      }
+      if (click.error) {
+        lastClickError = click.error;
+      }
     }
   }
 
-  if (matchedContainers === 0) {
+  const bodyText = (await page.locator('body').innerText()).toUpperCase();
+  const textMatched = variants.some((v) => bodyText.includes(v.toUpperCase()));
+
+  if (matchedContainers === 0 && !textMatched) {
     return { ok: false, reason: 'site_code_not_visible' };
+  }
+  if (textMatched && matchedContainers === 0) {
+    return { ok: false, reason: 'site_text_visible_but_not_in_clickable_container' };
   }
   if (!foundReserveControl) {
     return { ok: false, reason: 'site_visible_but_no_reserve_control' };
@@ -266,6 +322,10 @@ async function detectGlobalStatus(page) {
     signals.push('captcha_present_signal');
   }
 
+  if (bodyText.includes('enter date')) {
+    signals.push('enter_date_action_visible_signal');
+  }
+
   return signals;
 }
 
@@ -273,35 +333,41 @@ async function attemptBooking(page, targetSites) {
   try {
     // Reload each attempt after booking-open to catch inventory changes.
     try {
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 });
+      await page.goto(cfg.url, { waitUntil: 'domcontentloaded', timeout: 20_000 });
     } catch (error) {
-      log(`Attempt failure: reload_failed (${error?.message || String(error)})`);
+      log(`Attempt failure: navigate_failed (${error?.message || String(error)})`);
       return {
         success: false,
-        reason: 'reload_failed',
+        reason: 'navigate_failed',
         details: error?.message || String(error)
       };
     }
 
     await configureTripDates(page);
+    await applySiteTypeFilter(page);
 
     const globalSignals = await detectGlobalStatus(page);
     const siteResults = [];
 
-    // Try both targets in priority order.
-    for (const site of targetSites) {
-      const result = await tryReserveSite(page, site);
-      siteResults.push({ site, ...result });
-      if (!result.ok) continue;
+    for (let p = 1; p <= cfg.maxResultPages; p += 1) {
+      // Try both targets in priority order for the current result page.
+      for (const site of targetSites) {
+        const result = await tryReserveSite(page, site);
+        siteResults.push({ page: p, site, ...result });
+        if (!result.ok) continue;
 
-      await page.waitForTimeout(600);
-      await fillProfile(page);
+        await page.waitForTimeout(600);
+        await fillProfile(page);
 
-      log(`Site ${site}: reservation interaction succeeded (pending human verification).`);
-      return { success: true, site };
+        log(`Site ${site}: reservation interaction succeeded on results page ${p} (pending human verification).`);
+        return { success: true, site };
+      }
+      const hasNext = await goToNextResultsPage(page);
+      if (!hasNext) break;
+      log(`Scanning next results page (${p + 1}) for target sites...`);
     }
 
-    const siteSummary = siteResults.map((s) => `${s.site}:${s.reason}`).join(' | ');
+    const siteSummary = siteResults.map((s) => `${s.site}@p${s.page}:${s.reason}`).join(' | ');
     const signalSummary = globalSignals.length > 0 ? globalSignals.join(', ') : 'none';
     log(`Attempt failure summary -> signals=${signalSummary}; sites=${siteSummary || 'none'}`);
 
