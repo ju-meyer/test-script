@@ -71,6 +71,12 @@ function addDaysIso(isoDate, days) {
   return toIsoDate(base);
 }
 
+function isoToUsDate(isoDate) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate || '');
+  if (!m) return isoDate;
+  return `${m[2]}/${m[3]}/${m[1]}`;
+}
+
 async function waitUntilWindow() {
   if (cfg.runNow) {
     log('RUN_NOW=true, skipping wait window');
@@ -158,6 +164,7 @@ async function configureTripDates(page) {
   const arrivalSet = await setDateIfPresent(
     page,
     [
+      'input[placeholder*="MM/DD/YYYY"]',
       'input[name*=arriv i]',
       'input[id*=arriv i]',
       'input[name*=checkin i]',
@@ -165,7 +172,20 @@ async function configureTripDates(page) {
       'input[name*=start i]',
       'input[id*=start i]'
     ],
-    cfg.startDate
+    isoToUsDate(cfg.startDate)
+  );
+
+  const lengthOfStaySet = await setDateIfPresent(
+    page,
+    [
+      'input[name*=length i]',
+      'input[id*=length i]',
+      'input[name*=stay i]',
+      'input[id*=stay i]',
+      'input[name*=night i]',
+      'input[id*=night i]'
+    ],
+    String(cfg.nights)
   );
 
   const departureSet = await setDateIfPresent(
@@ -178,17 +198,19 @@ async function configureTripDates(page) {
       'input[name*=end i]',
       'input[id*=end i]'
     ],
-    departure
+    isoToUsDate(departure)
   );
 
-  if (arrivalSet || departureSet) {
+  if (arrivalSet || lengthOfStaySet || departureSet) {
     await safeClick(
       page.locator(
-        'button:has-text("Search"), button:has-text("Update"), button:has-text("Apply"), a:has-text("Search"), a:has-text("Update")'
+        'button:has-text("Search Available"), button:has-text("Search"), button:has-text("Update"), button:has-text("Apply"), a:has-text("Search"), a:has-text("Update")'
       )
     );
     const nightsMsg = cfg.endDate ? 'END_DATE supplied' : `${cfg.nights} nights`;
-    log(`Trip dates set -> arrival=${cfg.startDate}, departure=${departure} (${nightsMsg})`);
+    log(
+      `Trip dates set -> arrival=${isoToUsDate(cfg.startDate)}, length=${cfg.nights}, departure=${isoToUsDate(departure)} (${nightsMsg})`
+    );
   } else {
     log('Trip dates not set: no recognizable date inputs found on page.');
   }

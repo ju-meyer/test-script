@@ -14,6 +14,7 @@ This repository contains a **speed-assist automation script** to help you move q
 - Supports site actions labeled `Enter Date` (not just `Reserve`/`Book`) for parks using that flow.
 - Matches site codes using common variants (e.g., `L2`, `L 2`, `L-2`, `Loop L Site 2`).
 - Attempts to set arrival/departure dates from `START_DATE` + (`END_DATE` or `NIGHTS`) each attempt.
+- Handles date widgets that require `MM/DD/YYYY` and a separate `Length of stay` field.
 - Can click a target site-type filter label (default `Nightly Electric`) and scan multiple result pages via `Next`.
 - Searches main page and embedded frames for filters, site rows, and actions.
 - Optionally auto-fills obvious form fields from environment variables.
