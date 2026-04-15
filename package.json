@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node scripts/booking-assist.mjs",
-    "start:now": "node scripts/start-now.mjs",
-    "check": "node --check scripts/booking-assist.mjs && node --check scripts/start-now.mjs"
+    "start:now": "RUN_NOW=true node scripts/booking-assist.mjs",
+    "check": "node --check scripts/booking-assist.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

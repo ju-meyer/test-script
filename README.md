@@ -12,10 +12,6 @@ This repository contains a **speed-assist automation script** to help you move q
 - Attempts to click reserve/book actions for matching site rows/cards.
 - Optionally auto-fills obvious form fields from environment variables.
 - Leaves final confirmation/payment to you.
-- Logs structured attempt diagnostics (e.g., site code not visible, reserve button missing, click failed, potential not-open/no-availability signals).
-- Logs a one-line human-readable reason for each failed attempt (with per-site breakdown).
-- Catches and logs unexpected per-attempt exceptions (instead of crashing on stack traces).
-- Recovers from accidental tab/page closures by opening a fresh page and continuing attempts.
 
 ## What it does **not** do
 
@@ -48,8 +44,6 @@ cp .env.example .env
 ```bash
 npm run start:now
 ```
-
-This works in PowerShell/CMD too because `npm run start:now` calls a Node launcher script (`scripts/start-now.mjs`) instead of relying on shell-specific env syntax.
 
 5. Run for launch time:
 
