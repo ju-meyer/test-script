@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node scripts/booking-assist.mjs",
-    "start:now": "node scripts/booking-assist.mjs --run-now",
+    "start:now": "RUN_NOW=true node scripts/booking-assist.mjs",
     "check": "node --check scripts/booking-assist.mjs"
   },
   "dependencies": {

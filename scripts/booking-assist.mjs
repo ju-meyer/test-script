@@ -1,8 +1,6 @@
 import 'dotenv/config';
 import { chromium } from 'playwright';
 
-const argv = new Set(process.argv.slice(2));
-
 const cfg = {
   url:
     process.env.BOOKING_URL ||
@@ -17,9 +15,7 @@ const cfg = {
   maxAttempts: Number(process.env.MAX_ATTEMPTS || 300),
   headless: String(process.env.HEADLESS || 'false').toLowerCase() === 'true',
   slowMoMs: Number(process.env.SLOW_MO_MS || 0),
-  runNow:
-    argv.has('--run-now') ||
-    String(process.env.RUN_NOW || 'false').toLowerCase() === 'true',
+  runNow: String(process.env.RUN_NOW || 'false').toLowerCase() === 'true',
   profile: {
     firstName: process.env.FIRST_NAME || '',
     lastName: process.env.LAST_NAME || '',
