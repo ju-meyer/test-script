@@ -60,6 +60,9 @@ function getRoots(page) {
   return [page, ...page.frames().filter((f) => f !== page.mainFrame())];
 }
 
+const ACTION_SELECTOR =
+  'button:has-text("Reserve"), button:has-text("Book"), button:has-text("Enter Date"), button:has-text("See Details"), a:has-text("Reserve"), a:has-text("Book"), a:has-text("Enter Date"), a:has-text("See Details"), input[type="submit"][value*="Reserve" i], input[type="submit"][value*="Book" i], input[type="submit"][value*="Enter Date" i], input[type="submit"][value*="See Details" i], input[type="button"][value*="Enter Date" i], input[type="button"][value*="See Details" i]';
+
 function toIsoDate(d) {
   return d.toISOString().slice(0, 10);
 }
@@ -279,9 +282,7 @@ async function tryReserveSite(page, siteCode) {
 
       for (let i = 0; i < Math.min(count, 15); i += 1) {
         const c = containers.nth(i);
-        const reserveButton = c.locator(
-          'button:has-text("Reserve"), button:has-text("Book"), button:has-text("Enter Date"), a:has-text("Reserve"), a:has-text("Book"), a:has-text("Enter Date")'
-        );
+        const reserveButton = c.locator(ACTION_SELECTOR);
         if ((await reserveButton.count()) > 0) {
           foundReserveControl = true;
         }
@@ -302,8 +303,10 @@ async function tryReserveSite(page, siteCode) {
     for (const variant of variants) {
       const direct = root.locator(`text=/${variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/i`);
       if ((await direct.count()) > 0) {
-        const nearAction = direct.first().locator('xpath=ancestor-or-self::*[self::tr or self::li or self::div][1]').locator('button, a');
-        const nearReserve = nearAction.filter({ hasText: /reserve|book|enter date/i });
+        const nearReserve = direct
+          .first()
+          .locator('xpath=ancestor-or-self::*[self::tr or self::li or self::div][1]')
+          .locator(ACTION_SELECTOR);
         if ((await nearReserve.count()) > 0) {
           foundReserveControl = true;
         }
@@ -314,6 +317,49 @@ async function tryReserveSite(page, siteCode) {
         }
         if (click.error) {
           lastClickError = click.error;
+        }
+      }
+    }
+  }
+
+  // Strategy 3: row-proximity match (site text and Enter Date button may be siblings, not same container).
+  for (const root of getRoots(page)) {
+    const actionButtons = root.locator(ACTION_SELECTOR);
+    const actionCount = Math.min(await actionButtons.count(), 30);
+    if (actionCount === 0) continue;
+
+    for (const variant of variants) {
+      const labels = root.locator(`text=/${variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/i`);
+      const labelCount = Math.min(await labels.count(), 6);
+      for (let li = 0; li < labelCount; li += 1) {
+        const labelBox = await labels.nth(li).boundingBox().catch(() => null);
+        if (!labelBox) continue;
+
+        let bestIndex = -1;
+        let bestScore = Number.POSITIVE_INFINITY;
+        for (let ai = 0; ai < actionCount; ai += 1) {
+          const btnBox = await actionButtons.nth(ai).boundingBox().catch(() => null);
+          if (!btnBox) continue;
+          const verticalDelta = Math.abs(btnBox.y - labelBox.y);
+          const horizontalDelta = btnBox.x - labelBox.x;
+          if (verticalDelta > 45) continue; // likely not same row
+          if (horizontalDelta < 100) continue; // action should be to the right
+          const score = verticalDelta + horizontalDelta / 1000;
+          if (score < bestScore) {
+            bestScore = score;
+            bestIndex = ai;
+          }
+        }
+
+        if (bestIndex >= 0) {
+          const click = await safeClick(actionButtons.nth(bestIndex));
+          if (click.ok) {
+            log(`Clicked row-proximity action for ${code} (matched as "${variant}")`);
+            return { ok: true, reason: 'clicked_row_proximity_action' };
+          }
+          if (click.error) {
+            lastClickError = click.error;
+          }
         }
       }
     }
